@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+      - "[0-9]*"
 
 jobs:
   release:
@@ -29,14 +30,14 @@ jobs:
 
       - name: Publish
         run: |
-          dotnet publish SpaceMousePilot.csproj `
+          dotnet publish SpaceMousePilot/SpaceMousePilot.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:EnableCompressionInSingleFile=true `
-            --output dist/app `
+            --output SpaceMousePilot/dist/app `
             --nologo
 
       - name: Install Inno Setup
@@ -44,20 +45,19 @@ jobs:
 
       - name: Build installer
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\spacemouse_pilot.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" SpaceMousePilot\installer\spacemouse_pilot.iss
 
       - name: Read changelog
         id: changelog
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $content = ""
-          if (Test-Path "CHANGELOG.md") {
-            $raw = (Get-Content CHANGELOG.md -Raw) -replace "`r`n", "`n"
+          if (Test-Path "SpaceMousePilot/CHANGELOG.md") {
+            $raw = (Get-Content SpaceMousePilot/CHANGELOG.md -Raw) -replace "`r`n", "`n"
             if ($raw -match "(?ms)##\s+$([regex]::Escape($version))\s*\n(.*?)(?=\n##\s|\z)") {
               $content = $Matches[1].Trim()
             }
           }
-          # Write to file to avoid multiline env var issues
           $content | Set-Content patch_notes.md -Encoding UTF8
           echo "has_notes=$($content -ne '')" >> $env:GITHUB_OUTPUT
 
@@ -87,4 +87,4 @@ jobs:
         with:
           name: "SpaceMouse Pilot v${{ steps.version.outputs.version }}"
           body_path: release_notes.md
-          files: dist/installer/SpaceMousePilot_Setup_${{ steps.version.outputs.version }}.exe
+          files: SpaceMousePilot/dist/installer/SpaceMousePilot_Setup_${{ steps.version.outputs.version }}.exe

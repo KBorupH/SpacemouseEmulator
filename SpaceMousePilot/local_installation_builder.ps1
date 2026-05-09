@@ -1,4 +1,4 @@
-# local_installation_builder.ps1 — local build and installer for testing
+# build.ps1 — local build and installer for testing
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -12,7 +12,6 @@ Write-Host ""
 Write-Host " SpaceMouse Pilot — Local Build  v$Version"
 Write-Host ""
 
-# publish
 Write-Host "[1/2] Publishing..."
 dotnet publish "$Root\SpaceMousePilot.csproj" `
     --configuration Release `
@@ -25,7 +24,6 @@ dotnet publish "$Root\SpaceMousePilot.csproj" `
     --nologo
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
-# installer
 Write-Host "[2/2] Building installer..."
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
