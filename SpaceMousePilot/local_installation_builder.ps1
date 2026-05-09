@@ -7,6 +7,7 @@ $Version = (git describe --tags --abbrev=0 2>$null) -replace '^v', ''
 if (-not $Version) { $Version = "0.0.0-local" }
 
 $env:SPACEMOUSE_VERSION = $Version
+$env:SPACEMOUSE_VERSION_NUMERIC = ($Version -split "-")[0]
 
 Write-Host ""
 Write-Host " SpaceMouse Pilot — Local Build  v$Version"

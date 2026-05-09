@@ -1,11 +1,12 @@
 ; SpaceMouse Pilot — Inno Setup script
 
-#define AppName    "SpaceMouse Pilot"
-#define AppVersion GetEnv("SPACEMOUSE_VERSION")
-#define AppPublisher "SpaceMouse Pilot"
-#define AppExe     "SpaceMousePilot.exe"
-#define Root       SourcePath + "\.."
-#define SourceDir  Root + "\dist\app"
+#define AppName       "SpaceMouse Pilot"
+#define AppVersion    GetEnv("SPACEMOUSE_VERSION")
+#define AppVersionNum GetEnv("SPACEMOUSE_VERSION_NUMERIC")
+#define AppPublisher  "SpaceMouse Pilot"
+#define AppExe        "SpaceMousePilot.exe"
+#define Root          SourcePath + "\.."
+#define SourceDir     Root + "\dist\app"
 
 [Setup]
 AppId={{A3F2C1D4-7B8E-4F9A-B3C2-1D4E5F6A7B8C}
@@ -22,7 +23,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=lowest
 UninstallDisplayName={#AppName}
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#AppVersionNum}
 CloseApplications=yes
 CloseApplicationsFilter={#AppExe}
 RestartApplications=no
