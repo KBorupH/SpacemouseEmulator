@@ -97,7 +97,21 @@ Not while the bridge is running. Click **Stop Bridge** to release the device bac
 **Will this cause issues with anti-cheat?**
 Low risk. The virtual controller is identical to a real Xbox 360 controller. ViGEmBus is a signed Windows driver used by Steam Input and millions of accessibility tools.
 
----
+## Versions
+
+Releases follow this pattern:
+
+| Version | What it means | Recommended for |
+|---|---|---|
+| `0.x.x-alpha.x` | Early development, expect bugs | Testing only |
+| `0.x.x-beta.x` | Feature complete, being stabilised | Adventurous users |
+| `0.x.x` | Stable pre-1.0 release | Most users |
+| `1.0.0`+ | Production stable | Everyone |
+
+**If you just want it to work** — always pick the latest release without `alpha` or `beta` in the version. If no stable release exists yet, the latest `beta` is the safest pre-release option.
+
+**If you want to help test** — `alpha` builds are the most recent but may have rough edges. Feedback and bug reports are welcome via [Issues](../../issues).
+
 ---
 
 ## For Developers
@@ -142,25 +156,35 @@ Output: `dist\installer\SpaceMousePilot_Setup_x.x.x.exe`
 
 ### Releasing
 
-```powershell
-.\release.ps1
+```
+git tag v0.1.0-alpha.1
+git push origin v0.1.0-alpha.1
 ```
 
-Prompts for the new version, creates and pushes the git tag (MinVer picks it up during build), builds, then publishes a GitHub release with the installer attached.
+The `.github/workflows/release.yml` workflow triggers on any `v*` tag push. It builds a self-contained exe, compiles the Inno Setup installer, and publishes a GitHub release with the installer attached. No local tooling needed beyond git.
 
 Requires [GitHub CLI](https://cli.github.com/) — run `gh auth login` on first use.
 
 ### Versioning
 
-Version is driven entirely by git tags. To release `1.0.1`:
+Version is driven entirely by git tags. To release `0.1.0-alpha.2`:
 
 ```
-git tag v1.0.1
-.\build.ps1       # MinVer reads v1.0.1, bakes it into the assembly
-.\release.ps1     # or just run release.ps1 which does both
+git tag v0.1.0-alpha.2
+git push origin v0.1.0-alpha.2
 ```
 
-No version file to edit. `AppVersion.Current` reads it back at runtime from the assembly's `InformationalVersion` attribute.
+The GitHub Actions workflow picks up the tag, builds, and publishes the release automatically. No local release script needed.
+
+Before tagging, add an entry to `CHANGELOG.md`:
+
+```markdown
+## 0.1.0-alpha.2
+- Fixed calibration not saving on exit
+- Improved deadzone precision
+```
+
+The version header must match the tag exactly (without the `v`). Bullets should be short and user-facing. Newest version goes at the top. The release workflow reads the matching entry and uses it as the GitHub release body automatically.
 
 ### Architecture Notes
 
