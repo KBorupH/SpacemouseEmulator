@@ -6,9 +6,15 @@ namespace SpaceMousePilot.Models;
 
 public sealed class AppConfig
 {
-    [JsonPropertyName("poll_rate_hz")] public int PollRateHz { get; set; } = 250;
-    [JsonPropertyName("ui_refresh_hz")] public int UiRefreshHz { get; set; } = 30;
-    [JsonPropertyName("calib_duration_s")] public double CalibDurationS { get; set; } = 10.0;
+    [JsonPropertyName("poll_rate_hz")] 
+    public int PollRateHz { get; set; } = 250;
+    [JsonPropertyName("ui_refresh_hz")] 
+    public int UiRefreshHz { get; set; } = 30;
+    [JsonPropertyName("calib_duration_s")] 
+    public double CalibDurationS { get; set; } = 10.0;
+
+    [JsonPropertyName("filter_tau_s")]
+    public double FilterTauS { get; set; } = 0.05; // seconds (feel)
 
     [JsonPropertyName("axes")]
     public Dictionary<AxisKey, AxisConfig> Axes { get; set; } = new()

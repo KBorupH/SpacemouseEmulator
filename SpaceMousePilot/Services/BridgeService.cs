@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 
 using HidSharp;
 
@@ -60,7 +61,6 @@ internal sealed class BridgeService(AppConfig config)
     public event Action<string>? OnDeviceConnected;
     public event Action? OnRunning;
     public event Action? OnStopped;
-    public event Action<AxisKey, double>? OnAxisValue;
     public event Action<double>? OnCalibProgress;
     public event Action<AxisKey, double>? OnCalibPeak;
     public event Action<Dictionary<AxisKey, int>>? OnCalibComplete;
@@ -73,6 +73,9 @@ internal sealed class BridgeService(AppConfig config)
     private Dictionary<AxisKey, int> _calibPeaks = [];
 
     public bool IsRunning => _thread?.IsAlive == true;
+
+    private readonly double[] _latestAxisValues = new double[Enum.GetValues<AxisKey>().Length]; 
+    private readonly double[] _filteredAxisValues = new double[Enum.GetValues<AxisKey>().Length];
 
     // ── public API ────────────────────────────────────────────────────────────
 
@@ -123,198 +126,156 @@ internal sealed class BridgeService(AppConfig config)
     {
         Logger.Info("bridge", "Thread started");
 
-        // ── ViGEm ─────────────────────────────────────────────────────────────
         ViGEmClient? client = null;
         IXbox360Controller? controller = null;
+
         try
         {
             client = new ViGEmClient();
+
             controller = client.CreateXbox360Controller();
             controller.Connect();
+
             OnGamepadReady?.Invoke(true);
+
             Logger.Info("bridge", "Virtual Xbox 360 controller connected");
         }
         catch (Exception ex)
         {
             Logger.Error("bridge", ex);
-            OnError?.Invoke($"Failed to create virtual gamepad:\n{ex.Message}");
+
+            OnError?.Invoke(
+                $"Failed to create virtual gamepad:\n{ex.Message}");
+
             client?.Dispose();
             return;
         }
 
-        // ── HID ───────────────────────────────────────────────────────────────
         var device = FindDevice();
+
         if (device is null)
         {
-            OnError?.Invoke("SpaceMouse disconnected before bridge opened.");
+            OnError?.Invoke(
+                "SpaceMouse disconnected before bridge opened.");
+
             controller.Disconnect();
             client.Dispose();
+
             return;
         }
 
-        Logger.Info("bridge", $"Opening: {device.GetFriendlyName()} PID=0x{device.ProductID:X4}");
+        Logger.Info(
+            "bridge",
+            $"Opening: {device.GetFriendlyName()} PID=0x{device.ProductID:X4}");
+
         OnDeviceConnected?.Invoke(device.GetFriendlyName());
 
         HidStream? stream = null;
+
         try
         {
             stream = device.Open(new OpenConfiguration());
-            stream.ReadTimeout = 8;
+            stream.ReadTimeout = 1;
+
             Logger.Info("bridge", "HID device opened");
         }
         catch (Exception ex)
         {
             Logger.Error("bridge", $"HID open failed: {ex.Message}");
-            OnError?.Invoke($"Could not open SpaceMouse:\n{ex.Message}\nClose 3DxWare and retry.");
+
+            OnError?.Invoke(
+                $"Could not open SpaceMouse:\n{ex.Message}\nClose 3DxWare and retry.");
+
             controller.Disconnect();
             client.Dispose();
+
             return;
         }
 
         OnRunning?.Invoke();
+
         Logger.Info("bridge", $"Running at {_config.PollRateHz} Hz");
 
-        var raw = new Dictionary<(int, int), short>();
+        short[] report1 = new short[6];
+        short[] report2 = new short[6];
+
         int buttons = 0;
+
         var axisMap = _legacyMap;
+
         bool fmtDetected = false;
+
         var buf = new byte[device.GetMaxInputReportLength()];
-        var noDataSw = Stopwatch.StartNew();
-        long reads = 0;
-        var interval = TimeSpan.FromSeconds(1.0 / Math.Max(1, _config.PollRateHz));
-        var next = Stopwatch.GetTimestamp();
+
+        double freq = Stopwatch.Frequency;
+        long last = Stopwatch.GetTimestamp();
+        long ticksPerFrame = Stopwatch.Frequency / Math.Max(1, _config.PollRateHz);
+        long next = Stopwatch.GetTimestamp();
+
+        double dt = 1.0 / Math.Max(1, _config.PollRateHz);
 
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                // Drain HID reports
-                var latest = new Dictionary<int, byte[]>();
-                while (true)
-                {
-                    try
-                    {
-                        int n = stream.Read(buf);
-                        if (n > 0)
-                        {
-                            latest[buf[0]] = buf[..n];
-                            reads++;
-                        }
-                    }
-                    catch (TimeoutException)
-                    {
-                        break;
-                    }
-                    catch (IOException ex)
-                    {
-                        Logger.Error("bridge", $"Read error: {ex.Message}");
-                        OnError?.Invoke("SpaceMouse disconnected.");
-                        return;
-                    }
-                }
+                UpdatePollRate(ref ticksPerFrame);
 
-                // Auto-detect format on first data
-                if (!fmtDetected && latest.Count > 0)
-                {
-                    fmtDetected = true;
-                    foreach (var (id, pkt) in latest)
-                        Logger.Info("bridge", $"First packet — report={id} len={pkt.Length} bytes=[{string.Join(",", pkt[..Math.Min(14, pkt.Length)])}]");
+                // --- dt calculation (time-based, independent of Hz stability)
+                long now = Stopwatch.GetTimestamp();
+                dt = (now - last) / freq;
+                last = now;
 
-                    axisMap = latest.TryGetValue(1, out var p) && p.Length >= 13
-                        ? _modernMap : _legacyMap;
-                    Logger.Info("bridge", $"Format: {(axisMap == _modernMap ? "MODERN" : "LEGACY")}");
-                }
+                dt = Math.Min(dt, 0.05);
 
-                if (reads == 0 && noDataSw.Elapsed.TotalSeconds > 2)
-                {
-                    Logger.Warn("bridge", "No HID data after 2s — possibly wrong interface");
-                    noDataSw.Reset();
-                }
+                ReadReports(
+                    stream,
+                    buf,
+                    report1,
+                    report2,
+                    ref buttons,
+                    ref fmtDetected,
+                    ref axisMap);
 
-                // Parse reports
-                foreach (var (_, pkt) in latest)
-                {
-                    var id = pkt[0];
-                    if (id is 1 or 2)
-                    {
-                        for (int o = 1; o + 1 < pkt.Length && o <= 11; o += 2)
-                            raw[(id, o)] = (short)(pkt[o] | (pkt[o + 1] << 8));
-                    }
-                    else if (id == 3 && pkt.Length > 1)
-                    {
-                        buttons = pkt[1];
-                    }
-                }
+                ProcessCalibration(
+                    axisMap,
+                    report1,
+                    report2);
 
-                // Calibration
-                if (_calibrating && _calibTimer is not null)
-                {
-                    var elapsed = _calibTimer.Elapsed.TotalSeconds;
-                    var progress = Math.Min(1.0, elapsed / _config.CalibDurationS);
-                    OnCalibProgress?.Invoke(progress);
+                ProcessAxes(
+                    controller,
+                    axisMap,
+                    report1,
+                    report2,
+                    dt);
 
-                    foreach (var (axis, key) in axisMap)
-                    {
-                        var peak = Math.Abs(raw.GetValueOrDefault(key));
-                        if (peak > _calibPeaks.GetValueOrDefault(axis))
-                        {
-                            _calibPeaks[axis] = peak;
-                            OnCalibPeak?.Invoke(axis, Math.Min(1.0, peak / _calibDisplayRef));
-                        }
-                    }
-
-                    if (elapsed >= _config.CalibDurationS)
-                    {
-                        _calibrating = false;
-                        foreach (var (axis, peak) in _calibPeaks)
-                        {
-                            if (peak > 10)
-                                _config.Axes[axis].Scale = peak;
-                        }
-
-                        Logger.Info("bridge", $"Calibration complete: {string.Join(", ", _calibPeaks.Select(kv => $"{kv.Key}={kv.Value}"))}");
-                        OnCalibComplete?.Invoke(new Dictionary<AxisKey, int>(_calibPeaks));
-                    }
-                }
-
-                // Process axes
-                foreach (var (axis, axCfg) in _config.Axes)
-                {
-                    if (!axisMap.TryGetValue(axis, out var key))
-                        continue;
-
-                    var val = Process(raw.GetValueOrDefault(key), axCfg);
-                    OnAxisValue?.Invoke(axis, val);
-                    SetAxis(controller, axCfg.Gamepad, val);
-                }
-
-                // Buttons
-                foreach (var (idxStr, btn) in _config.Buttons)
-                {
-                    if (int.TryParse(idxStr, out int idx) && _buttonMap.TryGetValue(btn, out var xBtn))
-                        controller.SetButtonState(xBtn, ((buttons >> idx) & 1) == 1);
-                }
+                ProcessButtons(
+                    controller,
+                    buttons);
 
                 controller.SubmitReport();
 
-                // Pace to poll rate
-                next += (long)(interval.TotalSeconds * Stopwatch.Frequency);
-                var wait = next - Stopwatch.GetTimestamp();
-                if (wait > 0)
-                    Thread.Sleep((int)(wait * 1000.0 / Stopwatch.Frequency));
+                WaitForNextFrame(
+                    ref next,
+                    ticksPerFrame);
             }
         }
         catch (Exception ex)
         {
             Logger.Error("bridge", $"Loop crashed: {ex}");
-            OnError?.Invoke($"Bridge crashed:\n{ex.Message}");
+
+            OnError?.Invoke(
+                $"Bridge crashed:\n{ex.Message}");
         }
         finally
         {
             stream?.Close();
+
             controller.Disconnect();
+
             client.Dispose();
+
             OnStopped?.Invoke();
+
             Logger.Info("bridge", "Thread exited");
         }
     }
@@ -395,17 +356,273 @@ internal sealed class BridgeService(AppConfig config)
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void UpdatePollRate(ref long ticksPerFrame)
+    {
+        int hz = _config.PollRateHz;
+
+        long newTicks = Stopwatch.Frequency / (hz > 0 ? hz : 1);
+
+        if (newTicks != ticksPerFrame)
+            ticksPerFrame = newTicks;
+    }
+
+    private void ReadReports(
+        HidStream stream,
+        byte[] buf,
+        short[] report1,
+        short[] report2,
+        ref int buttons,
+        ref bool fmtDetected,
+        ref Dictionary<AxisKey, (int Report, int Offset)> axisMap)
+    {
+        while (true)
+        {
+            try
+            {
+                int n = stream.Read(buf);
+
+                if (n <= 0)
+                    break;
+
+                byte id = buf[0];
+
+                //
+                // Detect packet format once
+                //
+                if (!fmtDetected)
+                {
+                    fmtDetected = true;
+
+                    axisMap = (id == 1 && n >= 13)
+                        ? _modernMap
+                        : _legacyMap;
+
+                    Logger.Info( "bridge", $"Format: {(axisMap == _modernMap ? "MODERN" : "LEGACY")}");
+                }
+
+                //
+                // Motion reports
+                //
+                if (id is 1 or 2)
+                {
+                    short[] target = id == 1
+                        ? report1
+                        : report2;
+
+                    int idx = 0;
+
+                    for (int o = 1; o + 1 < n && idx < 6; o += 2)
+                    {
+                        target[idx++] = (short)(buf[o] | (buf[o + 1] << 8));
+                    }
+                }
+                //
+                // Button report
+                //
+                else if (id == 3 && n > 1)
+                {
+                    buttons = buf[1];
+                }
+            }
+            catch (TimeoutException)
+            {
+                break;
+            }
+            catch (IOException ex)
+            {
+                Logger.Error("bridge", $"Read error: {ex.Message}");
+
+                OnError?.Invoke("SpaceMouse disconnected.");
+
+                throw;
+            }
+        }
+    }
+
+    private void ProcessCalibration(
+        Dictionary<AxisKey, (int Report, int Offset)> axisMap,
+        short[] report1,
+        short[] report2)
+    {
+        if (!_calibrating || _calibTimer is null)
+            return;
+
+        double elapsed = _calibTimer.Elapsed.TotalSeconds;
+        double progress = elapsed / _config.CalibDurationS;
+
+        if (progress > 1.0)
+            progress = 1.0;
+
+        OnCalibProgress?.Invoke(progress);
+
+        foreach (var (axis, key) in axisMap)
+        {
+            short raw = key.Report == 1
+                ? report1[key.Offset >> 1]
+                : report2[key.Offset >> 1];
+
+            int peak = raw >= 0
+                ? raw
+                : -raw;
+
+            if (peak > _calibPeaks[axis])
+            {
+                _calibPeaks[axis] = peak;
+
+                double normalized = peak / _calibDisplayRef;
+
+                if (normalized > 1.0)
+                    normalized = 1.0;
+
+                OnCalibPeak?.Invoke(axis, normalized);
+            }
+        }
+
+        if (elapsed < _config.CalibDurationS)
+            return;
+
+        _calibrating = false;
+
+        foreach (var (axis, peak) in _calibPeaks)
+        {
+            if (peak > 10)
+                _config.Axes[axis].Scale = peak;
+        }
+
+        Logger.Info("bridge", "Calibration complete");
+
+        OnCalibComplete?.Invoke(new Dictionary<AxisKey, int>(_calibPeaks));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ProcessAxes(
+    IXbox360Controller controller,
+    Dictionary<AxisKey, (int Report, int Offset)> axisMap,
+    short[] report1,
+    short[] report2,
+    double dt)
+    {
+        double tau = _config.FilterTauS;
+
+        // convert tau → alpha once per frame
+        double alpha =
+            tau <= 0.000001
+                ? 1.0
+                : 1.0 - Math.Exp(-dt / tau);
+
+        foreach (var (axis, cfg) in _config.Axes)
+        {
+            if (!axisMap.TryGetValue(axis, out var key))
+                continue;
+
+            short raw = key.Report == 1
+                ? report1[key.Offset >> 1]
+                : report2[key.Offset >> 1];
+
+            double target = Process(raw, cfg);
+
+            int i = (int)axis;
+
+            double prev = _filteredAxisValues[i];
+
+            double filtered = prev + alpha * (target - prev);
+
+            _filteredAxisValues[i] = filtered;
+
+            SetAxis(controller, cfg.Gamepad, filtered);
+        }
+    }
+
+    private void ProcessButtons(
+    IXbox360Controller controller,
+    int buttons)
+    {
+        foreach (var (idxStr, btn) in _config.Buttons)
+        {
+            if (!int.TryParse(idxStr, out int idx))
+                continue;
+
+            if (!_buttonMap.TryGetValue(btn, out var xBtn))
+                continue;
+
+            bool pressed = ((buttons >> idx) & 1) != 0;
+
+            controller.SetButtonState(xBtn, pressed);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void WaitForNextFrame(
+        ref long next,
+        long ticksPerFrame)
+    {
+        next += ticksPerFrame;
+
+        long wait = next - Stopwatch.GetTimestamp();
+
+        if (wait > 0)
+        {
+            int sleepMs = (int)(wait * 1000 / Stopwatch.Frequency);
+
+            //
+            // Coarse sleep first
+            //
+            if (sleepMs > 1)
+                Thread.Sleep(sleepMs - 1);
+
+            //
+            // Fine-grained spin
+            //
+            while (Stopwatch.GetTimestamp() < next)
+                Thread.SpinWait(16);
+        }
+        else
+        {
+            //
+            // Drift correction
+            //
+            next = Stopwatch.GetTimestamp();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static double Process(short raw, AxisConfig cfg)
     {
-        double val = Math.Max(-1.0, Math.Min(1.0, raw / (double)Math.Max(1, cfg.Scale)));
+        double scale = cfg.Scale > 0 ? cfg.Scale : 1.0;
+
+        double val = raw / scale;
+
+        // clamp
+        val = val > 1.0 ? 1.0 : (val < -1.0 ? -1.0 : val);
+
+        // deadzone uses magnitude but keeps sign separate
+        double sign = val < 0 ? -1.0 : 1.0;
+        double abs = val < 0 ? -val : val;
+
         double dz = cfg.Deadzone;
-        if (Math.Abs(val) < dz)
+
+        if (abs < dz)
             return 0.0;
 
-        val = Math.CopySign((Math.Abs(val) - dz) / (1.0 - dz), val);
-        val = Math.CopySign(Math.Pow(Math.Abs(val), cfg.Curve), val) * cfg.Sensitivity;
-        return cfg.Invert
-            ? Math.Max(-1.0, Math.Min(1.0, -val))
-            : Math.Max(-1.0, Math.Min(1.0, val));
+        // normalize after deadzone
+        val = (abs - dz) / (1.0 - dz);
+
+        // curve on magnitude
+        if (cfg.Curve != 1.0)
+            val = Math.Pow(val, cfg.Curve);
+
+        // apply sensitivity + sign
+        val = val * cfg.Sensitivity * sign;
+
+        // invert
+        if (cfg.Invert)
+            val = -val;
+
+        // final clamp
+        return val > 1.0 ? 1.0 : (val < -1.0 ? -1.0 : val);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public double GetAxisValue(AxisKey axis)  => Volatile.Read(ref _latestAxisValues[(int)axis]);
 }

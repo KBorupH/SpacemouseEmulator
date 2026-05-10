@@ -206,7 +206,7 @@ public sealed class MainViewModel : ObservableObject
     }
 
     // ── collections ───────────────────────────────────────────────────────────
-
+    private readonly Dictionary<AxisKey, MeterViewModel> _meters = [];
     public ObservableCollection<MeterViewModel> Meters { get; } = [];
     public ObservableCollection<AxisViewModel> AxisTabs { get; } = [];
     public ObservableCollection<AxisViewModel> MappingAxes { get; } = [];
@@ -266,7 +266,11 @@ public sealed class MainViewModel : ObservableObject
     {
         foreach (var axis in Enum.GetValues<AxisKey>())
         {
-            Meters.Add(new MeterViewModel(axis.ToLabel(), axis));
+            var meter = new MeterViewModel(axis.ToLabel(), axis);
+
+            Meters.Add(meter);
+            _meters[axis] = meter;
+
             AxisTabs.Add(new AxisViewModel(axis, Config.Axes[axis]));
             MappingAxes.Add(new AxisViewModel(axis, Config.Axes[axis]));
         }
@@ -304,7 +308,6 @@ public sealed class MainViewModel : ObservableObject
             DeviceName = ""; 
         });
 
-        _bridge.OnAxisValue += (axis, val) => Dispatch(() => GetMeter(axis)!.Value = val);
         _bridge.OnCalibProgress += p => Dispatch(() =>
         {
             CalibProgress = p;
@@ -312,7 +315,7 @@ public sealed class MainViewModel : ObservableObject
             CalibHint = $"Move ALL axes to their limits! ({(int)(Config.CalibDurationS * (1 - p)) + 1}s)";
         });
 
-        _bridge.OnCalibPeak += (axis, frac) => Dispatch(() => GetMeter(axis)!.CalibPeak = frac);
+        _bridge.OnCalibPeak += (axis, frac) => Dispatch(() => _meters[axis].CalibPeak = frac);
         _bridge.OnCalibComplete += _ => Dispatch(() =>
         {
             IsCalibrating = false;
@@ -328,15 +331,6 @@ public sealed class MainViewModel : ObservableObject
             ShowSave("Calibrated ✓");
         });
     }
-
-    private MeterViewModel? GetMeter(AxisKey axis) => axis switch
-    {
-        AxisKey.Roll => Meters[0],
-        AxisKey.Pitch => Meters[1],
-        AxisKey.Yaw => Meters[2],
-        AxisKey.Collective => Meters[3],
-        _ => null,
-    };
 
     private void SetCalibMode(bool on)
     {
@@ -412,7 +406,10 @@ public sealed class MainViewModel : ObservableObject
     private void RefreshMeters()
     {
         foreach (var m in Meters)
+        {
+            m.Value = _bridge.GetAxisValue(m.AxisKey);
             m.NotifyIsActive();
+        }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
