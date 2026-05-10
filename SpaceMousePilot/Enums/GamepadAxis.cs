@@ -19,10 +19,10 @@ public static class GamepadAxisExtensions
 {
     public static string ToDisplayName(this GamepadAxis axis) => axis switch
     {
-        GamepadAxis.left_x => "Left X",
-        GamepadAxis.left_y => "Left Y",
-        GamepadAxis.right_x => "Right X",
-        GamepadAxis.right_y => "Right Y",
+        GamepadAxis.left_x => "Left X-Axis",
+        GamepadAxis.left_y => "Left Y-Axis",
+        GamepadAxis.right_x => "Right X-Axis",
+        GamepadAxis.right_y => "Right Y-Axis",
         GamepadAxis.lt => "LT",
         GamepadAxis.rt => "RT",
         GamepadAxis.sl0 => "Slider 0",

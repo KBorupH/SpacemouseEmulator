@@ -21,6 +21,7 @@
         <conv:BoolToColorConverter        x:Key="BoolColor"/>
         <conv:BoolToStringConverter       x:Key="BoolStr"/>
         <conv:StringToVisibilityConverter x:Key="StrVis"/>
+        <conv:EnumDisplayConverter        x:Key="EnumDisplay"/>
         <BooleanToVisibilityConverter  x:Key="BoolVis"/>
 
         <!-- ── Meter row DataTemplate ── -->
@@ -145,7 +146,13 @@
                 <ComboBox Grid.Column="1" Style="{StaticResource ComboStyle}"
                   ItemsSource="{Binding Options}"
                   SelectedItem="{Binding Selected}"
-                  VerticalAlignment="Center"/>
+                  VerticalAlignment="Center">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
             </Grid>
         </DataTemplate>
 
@@ -219,15 +226,14 @@
                     <Style TargetType="Button" BasedOn="{StaticResource BtnAccent}">
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsRunning}" Value="True">
-                                <Setter Property="Background" Value="#D9534F"/>
-                                <Setter Property="BorderBrush" Value="#D9534F"/>
+                                <Setter Property="Background" Value="#C0392B"/>
+                                <Setter Property="Foreground" Value="{StaticResource BrText}"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </Button.Style>
-                <TextBlock Text="{Binding IsRunning,
-              Converter={StaticResource BoolStr},
-              ConverterParameter='Stop Bridge|Start Bridge'}"/>
+                <TextBlock Text="{Binding IsRunning, Converter={StaticResource BoolStr},
+                          ConverterParameter='Stop Bridge|Start Bridge'}"/>
             </Button>
 
             <!-- error -->
@@ -315,7 +321,13 @@
                                         <ComboBox Grid.Column="1" Style="{StaticResource ComboStyle}"
                               ItemsSource="{Binding GamepadAxes}"
                               SelectedItem="{Binding Gamepad}"
-                              VerticalAlignment="Center"/>
+                              VerticalAlignment="Center">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -404,3 +416,4 @@
         </StackPanel>
     </DockPanel>
 </Window>
+
