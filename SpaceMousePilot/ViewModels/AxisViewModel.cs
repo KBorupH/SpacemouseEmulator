@@ -1,54 +1,96 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+using SpaceMousePilot.Enums;
 using SpaceMousePilot.Models;
 
 namespace SpaceMousePilot.ViewModels;
 
-public sealed partial class AxisViewModel : ObservableObject
+public sealed class AxisViewModel(AxisKey axis, AxisConfig cfg) : ObservableObject
 {
-    private readonly AxisConfig _cfg;
+    private readonly AxisConfig _cfg = cfg;
 
-    public string Key   { get; }
-    public string Label { get; }
-    public string Hint  { get; }
+    public AxisKey AxisKey { get; } = axis;
+    public string Label { get; } = axis.ToLabel();
+    public string Hint { get; } = axis.ToHint();
 
-    public static string[] GamepadAxes   => ["left_x", "left_y", "right_x", "right_y", "lt", "rt", "sl0", "sl1"];
+    public static GamepadAxis[] GamepadAxes => Enum.GetValues<GamepadAxis>();
 
-    public AxisViewModel(string key, AxisConfig cfg)
+    public double Sensitivity
     {
-        Key   = key;
-        _cfg  = cfg;
-        Label = key switch { "roll" => "Roll", "pitch" => "Pitch", "yaw" => "Yaw", _ => "Collective" };
-        Hint  = key switch
+        get => _cfg.Sensitivity;
+        set
         {
-            "roll"  => "Tilt device left / right",
-            "pitch" => "Tilt device forward / back",
-            "yaw"   => "Twist device",
-            _       => "Push device up / down",
-        };
+            if (_cfg.Sensitivity == value)
+                return;
 
-        // Initialise backing fields from model
-        _sensitivity = cfg.Sensitivity;
-        _deadzone    = cfg.Deadzone;
-        _curve       = cfg.Curve;
-        _scale       = cfg.Scale;
-        _invert      = cfg.Invert;
-        _gamepad     = cfg.Gamepad;
+            _cfg.Sensitivity = value;
+            Notify();
+        }
     }
 
-    [ObservableProperty] private double _sensitivity;
-    [ObservableProperty] private double _deadzone;
-    [ObservableProperty] private double _curve;
-    [ObservableProperty] private int    _scale;
-    [ObservableProperty] private bool   _invert;
-    [ObservableProperty] private string _gamepad;
+    public double Deadzone
+    {
+        get => _cfg.Deadzone;
+        set
+        {
+            if (_cfg.Deadzone == value)
+                return;
 
-    partial void OnSensitivityChanged(double value) => _cfg.Sensitivity = value;
-    partial void OnDeadzoneChanged(double value)    => _cfg.Deadzone    = value;
-    partial void OnCurveChanged(double value)       => _cfg.Curve       = value;
-    partial void OnScaleChanged(int value)          => _cfg.Scale       = value;
-    partial void OnInvertChanged(bool value)        => _cfg.Invert      = value;
-    partial void OnGamepadChanged(string value)     => _cfg.Gamepad     = value;
+            _cfg.Deadzone = value;
+            Notify();
+        }
+    }
+
+    public double Curve
+    {
+        get => _cfg.Curve;
+        set
+        {
+            if (_cfg.Curve == value)
+                return;
+
+            _cfg.Curve = value;
+            Notify();
+        }
+    }
+
+    public int Scale
+    {
+        get => _cfg.Scale;
+        set
+        {
+            if (_cfg.Scale == value)
+                return;
+
+            _cfg.Scale = value;
+            Notify();
+        }
+    }
+
+    public bool Invert
+    {
+        get => _cfg.Invert;
+        set
+        {
+            if (_cfg.Invert == value)
+                return;
+
+            _cfg.Invert = value;
+            Notify();
+        }
+    }
+
+    public GamepadAxis Gamepad
+    {
+        get => _cfg.Gamepad;
+        set
+        {
+            if (_cfg.Gamepad == value)
+                return;
+
+            _cfg.Gamepad = value;
+            Notify();
+        }
+    }
 
     /// <summary>Called after calibration to push measured scale back to UI.</summary>
-    public void RefreshScale() => Scale = _cfg.Scale;
+    public void RefreshScale() => Notify(nameof(Scale));
 }

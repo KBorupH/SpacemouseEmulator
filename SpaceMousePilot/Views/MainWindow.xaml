@@ -8,7 +8,7 @@
         xmlns:ctrl="clr-namespace:SpaceMousePilot.Controls"
         xmlns:vm="clr-namespace:SpaceMousePilot.ViewModels"
         xmlns:v="clr-namespace:SpaceMousePilot.Views"
-        xmlns:conv="clr-namespace:SpaceMousePilot.Converters"
+        xmlns:conv="clr-namespace:SpaceMousePilot.Converters" d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="SpaceMouse Pilot"
         Width="480" SizeToContent="Height"
         ResizeMode="CanMinimize"
@@ -18,9 +18,10 @@
         Foreground="{StaticResource BrText}">
 
     <Window.Resources>
-        <conv:BoolToColorConverter  x:Key="BoolColor"/>
-        <conv:BoolToStringConverter x:Key="BoolStr"/>
-        <BooleanToVisibilityConverter x:Key="BoolVis"/>
+        <conv:BoolToColorConverter        x:Key="BoolColor"/>
+        <conv:BoolToStringConverter       x:Key="BoolStr"/>
+        <conv:StringToVisibilityConverter x:Key="StrVis"/>
+        <BooleanToVisibilityConverter  x:Key="BoolVis"/>
 
         <!-- ── Meter row DataTemplate ── -->
         <DataTemplate DataType="{x:Type vm:MeterViewModel}">
@@ -211,26 +212,19 @@
             </Grid>
 
             <!-- start/stop button -->
-            <Button Height="44"
-        Margin="0,0,0,4"
-        Command="{Binding ToggleBridgeCommand}">
-
+            <Button Height="44" Margin="0,0,0,4"
+              Command="{Binding ToggleBridgeCommand}"
+              IsEnabled="{Binding IsNotStarting}">
                 <Button.Style>
                     <Style TargetType="Button" BasedOn="{StaticResource BtnAccent}">
-
-                        <Setter Property="Background" Value="#4DA6FF"/>
-                        <Setter Property="BorderBrush" Value="#4DA6FF"/>
-
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsRunning}" Value="True">
                                 <Setter Property="Background" Value="#D9534F"/>
                                 <Setter Property="BorderBrush" Value="#D9534F"/>
                             </DataTrigger>
                         </Style.Triggers>
-
                     </Style>
                 </Button.Style>
-
                 <TextBlock Text="{Binding IsRunning,
               Converter={StaticResource BoolStr},
               ConverterParameter='Stop Bridge|Start Bridge'}"/>
@@ -239,7 +233,7 @@
             <!-- error -->
             <TextBlock Text="{Binding ErrorText}" FontSize="11"
                  Foreground="{StaticResource BrError}" TextWrapping="Wrap" Margin="0,2,0,0"
-                 Visibility="{Binding ErrorText, Converter={StaticResource BoolVis}}"/>
+                 Visibility="{Binding ErrorText, Converter={StaticResource StrVis}}"/>
             <TextBlock Visibility="{Binding ShowVigemLink, Converter={StaticResource BoolVis}}"
                  Margin="0,2,0,0">
         <Hyperlink Command="{Binding OpenVigemLinkCommand}"
@@ -317,11 +311,11 @@
                                             <ColumnDefinition/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="{Binding Label}" FontSize="12"
-                                            Foreground="{StaticResource BrMuted}" VerticalAlignment="Center"/>
+                               Foreground="{StaticResource BrMuted}" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Column="1" Style="{StaticResource ComboStyle}"
-                                              ItemsSource="{Binding GamepadAxes}"
-                                              SelectedItem="{Binding Gamepad}"
-                                              VerticalAlignment="Center"/>
+                              ItemsSource="{Binding GamepadAxes}"
+                              SelectedItem="{Binding Gamepad}"
+                              VerticalAlignment="Center"/>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

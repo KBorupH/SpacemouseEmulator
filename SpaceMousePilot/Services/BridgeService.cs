@@ -7,6 +7,7 @@ using Nefarius.ViGEm.Client;
 using Nefarius.ViGEm.Client.Targets;
 using Nefarius.ViGEm.Client.Targets.Xbox360;
 
+using SpaceMousePilot.Enums;
 using SpaceMousePilot.Extensions;
 using SpaceMousePilot.Models;
 
@@ -17,39 +18,40 @@ namespace SpaceMousePilot.Services;
 /// All public members are thread-safe. Events are raised on the bridge thread —
 /// callers must marshal to the UI thread.
 /// </summary>
-internal sealed class BridgeService
+internal sealed class BridgeService(AppConfig config)
 {
-    private const int SpaceMouseVid = 0x256F;
-    private const double CalibDisplayRef = 500.0;
+    private readonly AppConfig _config = config;
 
-    // Older devices: translation on report 1, rotation on report 2 (each 6 bytes)
-    private static readonly Dictionary<string, (int Report, int Offset)> LegacyMap = new()
+    private const int _spaceMouseVid = 0x256F;
+    private const double _calibDisplayRef = 500.0;
+
+    // (report id, byte offset) for each axis
+    private static readonly Dictionary<AxisKey, (int Report, int Offset)> _legacyMap = new()
     {
-        ["roll"] = (2, 1),
-        ["pitch"] = (2, 3),
-        ["yaw"] = (2, 5),
-        ["z"] = (1, 5),
+        [AxisKey.Roll] = (2, 1),
+        [AxisKey.Pitch] = (2, 3),
+        [AxisKey.Yaw] = (2, 5),
+        [AxisKey.Collective] = (1, 5),
     };
 
-    // Newer devices (Compact, Wireless): all 6 axes in report 1 as 12 bytes
-    private static readonly Dictionary<string, (int Report, int Offset)> ModernMap = new()
+    private static readonly Dictionary<AxisKey, (int Report, int Offset)> _modernMap = new()
     {
-        ["roll"] = (1, 9),
-        ["pitch"] = (1, 7),
-        ["yaw"] = (1, 11),
-        ["z"] = (1, 5),
+        [AxisKey.Roll] = (1, 9),
+        [AxisKey.Pitch] = (1, 7),
+        [AxisKey.Yaw] = (1, 11),
+        [AxisKey.Collective] = (1, 5),
     };
 
-    private static readonly Dictionary<string, Xbox360Button> ButtonMap = new()
+    private static readonly Dictionary<GamepadButton, Xbox360Button> _buttonMap = new()
     {
-        ["A"] = Xbox360Button.A,
-        ["B"] = Xbox360Button.B,
-        ["X"] = Xbox360Button.X,
-        ["Y"] = Xbox360Button.Y,
-        ["LB"] = Xbox360Button.LeftShoulder,
-        ["RB"] = Xbox360Button.RightShoulder,
-        ["LS"] = Xbox360Button.LeftThumb,
-        ["RS"] = Xbox360Button.RightThumb,
+        [GamepadButton.A] = Xbox360Button.A,
+        [GamepadButton.B] = Xbox360Button.B,
+        [GamepadButton.X] = Xbox360Button.X,
+        [GamepadButton.Y] = Xbox360Button.Y,
+        [GamepadButton.LB] = Xbox360Button.LeftShoulder,
+        [GamepadButton.RB] = Xbox360Button.RightShoulder,
+        [GamepadButton.LS] = Xbox360Button.LeftThumb,
+        [GamepadButton.RS] = Xbox360Button.RightThumb,
     };
 
     // ── events (raised on bridge thread) ──────────────────────────────────────
@@ -58,22 +60,19 @@ internal sealed class BridgeService
     public event Action<string>? OnDeviceConnected;
     public event Action? OnRunning;
     public event Action? OnStopped;
-    public event Action<string, double>? OnAxisValue;
+    public event Action<AxisKey, double>? OnAxisValue;
     public event Action<double>? OnCalibProgress;
-    public event Action<string, double>? OnCalibPeak;
-    public event Action<Dictionary<string, int>>? OnCalibComplete;
+    public event Action<AxisKey, double>? OnCalibPeak;
+    public event Action<Dictionary<AxisKey, int>>? OnCalibComplete;
 
-    private readonly AppConfig _config;
     private Thread? _thread;
     private CancellationTokenSource? _cts;
 
     private volatile bool _calibrating;
     private Stopwatch? _calibTimer;
-    private Dictionary<string, int> _calibPeaks = [];
+    private Dictionary<AxisKey, int> _calibPeaks = [];
 
     public bool IsRunning => _thread?.IsAlive == true;
-
-    public BridgeService(AppConfig config) => _config = config;
 
     // ── public API ────────────────────────────────────────────────────────────
 
@@ -87,6 +86,7 @@ internal sealed class BridgeService
             OnError?.Invoke("ViGEmBus not found — install it and restart.");
             return false;
         }
+
         if (FindDevice() is null)
         {
             OnError?.Invoke("SpaceMouse not found. Check USB and close 3DxWare.");
@@ -110,7 +110,8 @@ internal sealed class BridgeService
     {
         if (!IsRunning)
             return;
-        _calibPeaks = _config.Axes.Keys.ToDictionary(k => k, _ => 0);
+
+        _calibPeaks = Enum.GetValues<AxisKey>().ToDictionary(k => k, _ => 0);
         _calibTimer = Stopwatch.StartNew();
         _calibrating = true;
         Logger.Info("bridge", $"Calibration started ({_config.CalibDurationS}s)");
@@ -157,9 +158,7 @@ internal sealed class BridgeService
         HidStream? stream = null;
         try
         {
-            // HidSharp 2.6.x — use new OpenConfiguration() directly
-            var openCfg = new OpenConfiguration();
-            stream = device.Open(openCfg);
+            stream = device.Open(new OpenConfiguration());
             stream.ReadTimeout = 8;
             Logger.Info("bridge", "HID device opened");
         }
@@ -177,7 +176,7 @@ internal sealed class BridgeService
 
         var raw = new Dictionary<(int, int), short>();
         int buttons = 0;
-        var axisMap = LegacyMap;
+        var axisMap = _legacyMap;
         bool fmtDetected = false;
         var buf = new byte[device.GetMaxInputReportLength()];
         var noDataSw = Stopwatch.StartNew();
@@ -197,9 +196,15 @@ internal sealed class BridgeService
                     {
                         int n = stream.Read(buf);
                         if (n > 0)
-                        { latest[buf[0]] = buf[..n]; reads++; }
+                        {
+                            latest[buf[0]] = buf[..n];
+                            reads++;
+                        }
                     }
-                    catch (TimeoutException) { break; }
+                    catch (TimeoutException)
+                    {
+                        break;
+                    }
                     catch (IOException ex)
                     {
                         Logger.Error("bridge", $"Read error: {ex.Message}");
@@ -216,8 +221,8 @@ internal sealed class BridgeService
                         Logger.Info("bridge", $"First packet — report={id} len={pkt.Length} bytes=[{string.Join(",", pkt[..Math.Min(14, pkt.Length)])}]");
 
                     axisMap = latest.TryGetValue(1, out var p) && p.Length >= 13
-                        ? ModernMap : LegacyMap;
-                    Logger.Info("bridge", $"Format: {(axisMap == ModernMap ? "MODERN" : "LEGACY")}");
+                        ? _modernMap : _legacyMap;
+                    Logger.Info("bridge", $"Format: {(axisMap == _modernMap ? "MODERN" : "LEGACY")}");
                 }
 
                 if (reads == 0 && noDataSw.Elapsed.TotalSeconds > 2)
@@ -231,10 +236,14 @@ internal sealed class BridgeService
                 {
                     var id = pkt[0];
                     if (id is 1 or 2)
+                    {
                         for (int o = 1; o + 1 < pkt.Length && o <= 11; o += 2)
                             raw[(id, o)] = (short)(pkt[o] | (pkt[o + 1] << 8));
+                    }
                     else if (id == 3 && pkt.Length > 1)
+                    {
                         buttons = pkt[1];
+                    }
                 }
 
                 // Calibration
@@ -250,7 +259,7 @@ internal sealed class BridgeService
                         if (peak > _calibPeaks.GetValueOrDefault(axis))
                         {
                             _calibPeaks[axis] = peak;
-                            OnCalibPeak?.Invoke(axis, Math.Min(1.0, peak / CalibDisplayRef));
+                            OnCalibPeak?.Invoke(axis, Math.Min(1.0, peak / _calibDisplayRef));
                         }
                     }
 
@@ -258,10 +267,13 @@ internal sealed class BridgeService
                     {
                         _calibrating = false;
                         foreach (var (axis, peak) in _calibPeaks)
+                        {
                             if (peak > 10)
                                 _config.Axes[axis].Scale = peak;
+                        }
+
                         Logger.Info("bridge", $"Calibration complete: {string.Join(", ", _calibPeaks.Select(kv => $"{kv.Key}={kv.Value}"))}");
-                        OnCalibComplete?.Invoke(new Dictionary<string, int>(_calibPeaks));
+                        OnCalibComplete?.Invoke(new Dictionary<AxisKey, int>(_calibPeaks));
                     }
                 }
 
@@ -270,15 +282,18 @@ internal sealed class BridgeService
                 {
                     if (!axisMap.TryGetValue(axis, out var key))
                         continue;
+
                     var val = Process(raw.GetValueOrDefault(key), axCfg);
                     OnAxisValue?.Invoke(axis, val);
                     SetAxis(controller, axCfg.Gamepad, val);
                 }
 
                 // Buttons
-                foreach (var (idxStr, label) in _config.Buttons)
-                    if (int.TryParse(idxStr, out int idx) && ButtonMap.TryGetValue(label, out var btn))
-                        controller.SetButtonState(btn, ((buttons >> idx) & 1) == 1);
+                foreach (var (idxStr, btn) in _config.Buttons)
+                {
+                    if (int.TryParse(idxStr, out int idx) && _buttonMap.TryGetValue(btn, out var xBtn))
+                        controller.SetButtonState(xBtn, ((buttons >> idx) & 1) == 1);
+                }
 
                 controller.SubmitReport();
 
@@ -308,11 +323,11 @@ internal sealed class BridgeService
 
     private static HidDevice? FindDevice()
     {
-        var devs = DeviceList.Local.GetHidDevices(vendorID: SpaceMouseVid).ToList();
+        var devs = DeviceList.Local.GetHidDevices(vendorID: _spaceMouseVid).ToList();
         if (devs.Count == 0)
         {
-            Logger.Warn("bridge", $"No devices for VID=0x{SpaceMouseVid:X4}");
-            Logger.Debug("bridge", $"All HID: {string.Join(", ", DeviceList.Local.GetHidDevices().Select(d => $"0x{d.VendorID:X4}/0x{d.ProductID:X4} {d.SafeName()}"))}");
+            Logger.Warn("bridge", $"No devices for VID=0x{_spaceMouseVid:X4}");
+            Logger.Debug("bridge", $"All HID: \n{string.Join("\n", DeviceList.Local.GetHidDevices().Select(d => $"0x{d.VendorID:X4}/0x{d.ProductID:X4} {d.SafeName()}"))}\n\n");
             return null;
         }
 
@@ -320,8 +335,6 @@ internal sealed class BridgeService
         foreach (var d in devs)
             Logger.Debug("bridge", $"  PID=0x{d.ProductID:X4} {d.GetFriendlyName()}");
 
-        // Prefer Generic Desktop / Multi-axis Controller (usage page 1, usage 8)
-        // via report descriptor — GetUsagePage/GetUsage removed in 2.6.x
         foreach (var d in devs)
         {
             try
@@ -346,31 +359,37 @@ internal sealed class BridgeService
     private static bool CanCreateViGEm()
     {
         try
-        { using var c = new ViGEmClient(); return true; }
-        catch { return false; }
+        {
+            using var c = new ViGEmClient();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
-    private static void SetAxis(IXbox360Controller ctrl, string gamepad, double val)
+    private static void SetAxis(IXbox360Controller ctrl, GamepadAxis axis, double val)
     {
         short s = (short)(val * short.MaxValue);
-        switch (gamepad)
+        switch (axis)
         {
-            case "left_x":
+            case GamepadAxis.left_x:
                 ctrl.SetAxisValue(Xbox360Axis.LeftThumbX, s);
                 break;
-            case "left_y":
+            case GamepadAxis.left_y:
                 ctrl.SetAxisValue(Xbox360Axis.LeftThumbY, s);
                 break;
-            case "right_x":
+            case GamepadAxis.right_x:
                 ctrl.SetAxisValue(Xbox360Axis.RightThumbX, s);
                 break;
-            case "right_y":
+            case GamepadAxis.right_y:
                 ctrl.SetAxisValue(Xbox360Axis.RightThumbY, s);
                 break;
-            case "lt":
+            case GamepadAxis.lt:
                 ctrl.SetSliderValue(Xbox360Slider.LeftTrigger, (byte)(Math.Max(0, val) * 255));
                 break;
-            case "rt":
+            case GamepadAxis.rt:
                 ctrl.SetSliderValue(Xbox360Slider.RightTrigger, (byte)(Math.Max(0, val) * 255));
                 break;
         }
@@ -382,9 +401,11 @@ internal sealed class BridgeService
         double dz = cfg.Deadzone;
         if (Math.Abs(val) < dz)
             return 0.0;
+
         val = Math.CopySign((Math.Abs(val) - dz) / (1.0 - dz), val);
         val = Math.CopySign(Math.Pow(Math.Abs(val), cfg.Curve), val) * cfg.Sensitivity;
-        return cfg.Invert ? Math.Max(-1.0, Math.Min(1.0, -val))
-                          : Math.Max(-1.0, Math.Min(1.0, val));
+        return cfg.Invert
+            ? Math.Max(-1.0, Math.Min(1.0, -val))
+            : Math.Max(-1.0, Math.Min(1.0, val));
     }
 }

@@ -15,8 +15,8 @@ namespace SpaceMousePilot;
 
 public sealed partial class App : Application
 {
-    private const string MutexName = "SpaceMousePilot_SingleInstance";
-    private const string PipeName = "SpaceMousePilot_IPC";
+    private const string _mutexName = "SpaceMousePilot_SingleInstance";
+    private const string _pipeName = "SpaceMousePilot_IPC";
 
     private Mutex? _mutex;
     private bool _ownsMutex;
@@ -35,7 +35,7 @@ public sealed partial class App : Application
         {
             base.OnStartup(e);
 
-            _mutex = new Mutex(true, MutexName, out bool isNew);
+            _mutex = new Mutex(true, _mutexName, out bool isNew);
             _ownsMutex = isNew;
             if (!isNew)
             {
@@ -174,7 +174,7 @@ public sealed partial class App : Application
     {
         try
         {
-            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
+            using var client = new NamedPipeClientStream(".", _pipeName, PipeDirection.Out);
             client.Connect(500);
             using var w = new StreamWriter(client);
             w.Write("SHOW");
@@ -192,7 +192,7 @@ public sealed partial class App : Application
         {
             try
             {
-                using var server = new NamedPipeServerStream(PipeName, PipeDirection.In);
+                using var server = new NamedPipeServerStream(_pipeName, PipeDirection.In);
                 server.WaitForConnection();
                 using var r = new StreamReader(server);
                 if (r.ReadToEnd() == "SHOW")

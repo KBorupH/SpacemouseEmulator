@@ -1,24 +1,33 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+using SpaceMousePilot.Enums;
 
 namespace SpaceMousePilot.ViewModels;
 
-public sealed partial class ButtonMappingViewModel : ObservableObject
+public sealed class ButtonMappingViewModel : ObservableObject
 {
-    private readonly Dictionary<string, string> _source;
+    private readonly Dictionary<string, GamepadButton> _source;
     private readonly string _key;
 
     public string Label { get; }
-    public static string[] Options => ["A", "B", "X", "Y", "LB", "RB", "LS", "RS"];
+    public static GamepadButton[] Options => Enum.GetValues<GamepadButton>();
 
-    [ObservableProperty] private string _selected;
-
-    public ButtonMappingViewModel(string key, string initial, Dictionary<string, string> source)
+    public GamepadButton Selected
     {
-        _key      = key;
-        _source   = source;
-        Label     = $"Button {key}";
-        _selected = initial;
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            _source[_key] = value;
+            Notify();
+        }
     }
 
-    partial void OnSelectedChanged(string value) => _source[_key] = value;
+    public ButtonMappingViewModel(string key, GamepadButton initial, Dictionary<string, GamepadButton> source)
+    {
+        _key = key;
+        _source = source;
+        Label = $"Button {key}";
+        Selected = initial;
+    }
 }
