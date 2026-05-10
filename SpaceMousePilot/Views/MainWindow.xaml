@@ -354,13 +354,13 @@
                                 <ColumnDefinition Width="10"/>
                                 <ColumnDefinition Width="44"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Bridge Hz" FontSize="12" Foreground="{StaticResource BrMuted}" VerticalAlignment="Center"/>
+                            <TextBlock Text="Sample Rate" FontSize="12" Foreground="{StaticResource BrMuted}" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Style="{StaticResource SliderStyle}"
-                      Minimum="50" Maximum="1000" TickFrequency="50" IsSnapToTickEnabled="True"
-                      Value="{Binding PollRateHz}" Margin="0,0,10,0"/>
+                                Minimum="50" Maximum="1000" TickFrequency="50" IsSnapToTickEnabled="True"
+                                Value="{Binding PollRateHz}" Margin="0,0,10,0"/>
                             <TextBlock Grid.Column="3" FontSize="11" FontFamily="Consolas"
-                         Text="{Binding PollRateHz}"
-                         Foreground="{StaticResource BrText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                Text="{Binding PollRateHz}"
+                                Foreground="{StaticResource BrText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </Grid>
 
                         <Grid Margin="0,3">
@@ -372,11 +372,11 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="UI Hz" FontSize="12" Foreground="{StaticResource BrMuted}" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Style="{StaticResource SliderStyle}"
-                      Minimum="10" Maximum="120" TickFrequency="5" IsSnapToTickEnabled="True"
-                      Value="{Binding UiRefreshHz}" Margin="0,0,10,0"/>
+                                Minimum="10" Maximum="120" TickFrequency="5" IsSnapToTickEnabled="True"
+                                Value="{Binding UiRefreshHz}" Margin="0,0,10,0"/>
                             <TextBlock Grid.Column="3" FontSize="11" FontFamily="Consolas"
-                         Text="{Binding UiRefreshHz}"
-                         Foreground="{StaticResource BrText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                Text="{Binding UiRefreshHz}"
+                                Foreground="{StaticResource BrText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </Grid>
 
                         <Grid Margin="0,3">
@@ -388,11 +388,11 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Calib secs" FontSize="12" Foreground="{StaticResource BrMuted}" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Style="{StaticResource SliderStyle}"
-                      Minimum="3" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
-                      Value="{Binding CalibDurationS}" Margin="0,0,10,0"/>
+                                Minimum="3" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
+                                Value="{Binding CalibDurationS}" Margin="0,0,10,0"/>
                             <TextBlock Grid.Column="3" FontSize="11" FontFamily="Consolas"
-                         Text="{Binding CalibDurationS, StringFormat=F0}"
-                         Foreground="{StaticResource BrText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                Text="{Binding CalibDurationS, StringFormat=F0}"
+                                Foreground="{StaticResource BrText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </Grid>
                     </StackPanel>
                 </TabItem>
